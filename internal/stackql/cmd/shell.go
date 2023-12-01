@@ -16,13 +16,13 @@ limitations under the License.
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"runtime"
 	"strconv"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"github.com/stackql/stackql/internal/stackql/color"
 	"github.com/stackql/stackql/internal/stackql/config"
 	"github.com/stackql/stackql/internal/stackql/driver"
@@ -33,8 +33,6 @@ import (
 	"github.com/stackql/stackql/internal/stackql/logging"
 	"github.com/stackql/stackql/internal/stackql/provider"
 	"github.com/stackql/stackql/internal/stackql/writer"
-
-	"github.com/spf13/cobra"
 
 	"github.com/chzyer/readline"
 )
@@ -205,19 +203,36 @@ var shellCmd = &cobra.Command{
 
 		for {
 			l.SetPrompt(getShellPRompt(authCtx, cd))
-			var rawLine string
-			rawLine, err = l.Readline()
-			if errors.Is(err, readline.ErrInterrupt) {
-				if len(rawLine) == 0 {
+			input := ""
+			cursorPosition := 0
+			printColoredText(input)
+
+			ev := termbox_go.PollEvent()
+			switch ev.Type {
+			case termbox_go.EventKey:
+				switch ev.Key {
+				case termbox_go.KeyEsc:
 					break
-				} else { //nolint:revive // TODO: investigate
-					continue
+				case termbox_go.KeyBackspace, termbox_go.KeyBackspace2:
+					if cursorPosition > 0 {
+						input = input[:cursorPosition-1] + input[cursorPosition:]
+						cursorPosition--
+					}
+				case termbox_go.KeyEnter:
+					fmt.Println("You entered:", input)
+					input = ""
+					cursorPosition = 0
+				default:
+					if ev.Ch != 0 {
+						input = input[:cursorPosition] + string(ev.Ch) + input[cursorPosition:]
+						cursorPosition++
+					}
 				}
-			} else if errors.Is(err, io.EOF) {
-				break
 			}
 
-			line := strings.TrimSpace(rawLine)
+			termbox_go.Clear(termbox_go.ColorDefault, termbox_go.ColorDefault)
+
+			line := strings.TrimSpace(termbox_go.text())
 			switch {
 			case line == "help":
 				usage(outErrFile)
@@ -259,6 +274,7 @@ var shellCmd = &cobra.Command{
 		if !colorIsNull(runtimeCtx) {
 			cd.ResetColorScheme()
 		}
+
 		fmt.Fprintf(outfile, "")
 		fmt.Fprintf(outErrFile, "")
 		outfile, _ = writer.GetOutputWriter(writer.StdOutStr)
@@ -309,6 +325,42 @@ type sessionRunnerImpl struct {
 	outfile    io.Writer
 	outErrFile io.Writer
 	drv        driver.StackQLDriver
+}
+
+// Function to check if a word is in the list
+func contains(list []string, word string) bool {
+	for _, item := range list {
+		if item == word {
+			return true
+		}
+	}
+	return false
+}
+
+func printColoredText(input string, cursorPosition int) {
+	wordList := []string{"ADD", "AND", "ARRAY", "AS", "ASC", "AUTH", "BETWEEN", "BINARY", "BY", "CASE", "COLLATE", "CONVERT",
+		"CREATE", "CUME_DIST", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "DEFAULT", "DELETE", "DENSE_RANK", "DESC", "DESCRIBE",
+		"DISTINCT", "DISTINCTROW", "DIV", "DROP", "ELSE", "END", "ESCAPE", "EXEC", "EXISTS", "EXPLAIN", "FROM", "GROUP",
+		"GROUPING", "HAVING", "IF", "IGNORE", "IN", "INDEX", "INNER", "INSERT", "INTO", "IS", "JOIN", "KEY",
+		"LEFT", "LIKE", "LIMIT", "MAXVALUE", "NOT",
+		"NULL", "OF", "OR", "ORDER", "OUTER", "OVER", "RIGHT", "SELECT", "SHOW", "SUBSTR", "SUBSTRING", "TABLE",
+		"TO", "UNION", "UNIQUE", "UPDATE", "USING", "VALUES", "WHEN", "WHERE",
+		"WITH", "XOR", "FALSE", "TRUE"}
+
+	if contains(wordList, input) {
+		for i, char := range input {
+			if i == cursorPosition {
+				termbox_go.SetCell(i, 0, rune(char), termbox_go.ColorWhite, termbox_go.ColorRed)
+			} else {
+				termbox_go.SetCell(i, 0, rune(char), termbox_go.ColorBlue, termbox_go.ColorDefault)
+			}
+		}
+	} else {
+		for i, char := range input {
+			termbox_go.SetCell(i, 0, rune(char), termbox_go.ColorWhite, termbox_go.ColorRed)
+		}
+		termbox_go.Flush()
+	}
 }
 
 func (cr *sessionRunnerImpl) RunCommand(
